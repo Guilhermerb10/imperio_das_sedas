@@ -82,7 +82,8 @@ export default function Home({ navigation }) {
           <CartaoIndicador
             titulo="Estoque baixo"
             valor={carregando ? '...' : indicadores.estoqueBaixo}
-            icone="warning-outline"
+            icone={indicadores.estoqueBaixo > 0 ? 'warning' : 'warning-outline'}
+            alerta={indicadores.estoqueBaixo > 0}
           />
         </View>
 
