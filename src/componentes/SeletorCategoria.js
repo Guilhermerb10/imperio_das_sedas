@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import {
   View,
@@ -6,9 +5,11 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { cores } from '../estilo/style';
+import { cadastrarCategoria } from '../banco/BancoDados';
 
 export default function SeletorCategoria({
   categoria,
@@ -19,9 +20,10 @@ export default function SeletorCategoria({
   const [aberto, setAberto] = useState(false);
   const [novaCategoria, setNovaCategoria] = useState('');
   const [adicionando, setAdicionando] = useState(false);
+  const [salvandoCategoria, setSalvandoCategoria] = useState(false);
   const [erro, setErro] = useState('');
 
-  function adicionarCategoria() {
+  async function adicionarCategoria() {
     const nome = novaCategoria.trim();
 
     if (!nome) {
@@ -35,15 +37,28 @@ export default function SeletorCategoria({
 
     if (existente) {
       setCategoria(existente);
-    } else {
-      setCategorias([...categorias, nome]);
-      setCategoria(nome);
+      setNovaCategoria('');
+      setErro('');
+      setAdicionando(false);
+      setAberto(false);
+      return;
     }
 
-    setNovaCategoria('');
-    setErro('');
-    setAdicionando(false);
-    setAberto(false);
+    setSalvandoCategoria(true);
+    try {
+      await cadastrarCategoria(nome);
+      setCategorias([...categorias, nome]);
+      setCategoria(nome);
+      setNovaCategoria('');
+      setErro('');
+      setAdicionando(false);
+      setAberto(false);
+    } catch (e) {
+      console.error('Erro ao cadastrar categoria no SQLite:', e);
+      setErro('Não foi possível salvar a categoria.');
+    } finally {
+      setSalvandoCategoria(false);
+    }
   }
 
   return (
@@ -123,12 +138,17 @@ export default function SeletorCategoria({
               ) : null}
 
               <TouchableOpacity
-                style={styles.botaoAdicionar}
+                style={[styles.botaoAdicionar, salvandoCategoria && { opacity: 0.7 }]}
                 onPress={adicionarCategoria}
+                disabled={salvandoCategoria}
               >
-                <Text style={styles.textoAdicionar}>
-                  Adicionar
-                </Text>
+                {salvandoCategoria ? (
+                  <ActivityIndicator size="small" color={cores.fundo} />
+                ) : (
+                  <Text style={styles.textoAdicionar}>
+                    Adicionar
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           )}

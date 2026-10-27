@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,12 +6,19 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { cores } from '../estilo/style';
+import { mostrarAlerta } from '../util/alerta';
+import {
+  listarProdutos, 
+  registrarEntrada,
+  registrarSaida,
+} from '../banco/BancoDados';
 
 export default function Movimentacoes() {
   const [tipo, setTipo] = useState('Entrada');
@@ -21,13 +27,34 @@ export default function Movimentacoes() {
   const [motivo, setMotivo] = useState('');
   const [observacoes, setObservacoes] = useState('');
   const [mostrarMotivos, setMostrarMotivos] = useState(false);
+  const [mostrarProdutos, setMostrarProdutos] = useState(false);
+  const [produtos, setProdutos] = useState([]);
+  const [salvando, setSalvando] = useState(false);
 
-  // Sem produtos até a integração com SQLite
-  const [produtos] = useState([]);
+  const motivos =
+    tipo === 'Entrada'
+      ? ['Recebimento', 'Devolução', 'Ajuste', 'Outro']
+      : ['Venda', 'Perda', 'Ajuste', 'Outro'];
 
-  const motivos = tipo === 'Entrada'
-    ? ['Recebimento', 'Devolução', 'Ajuste', 'Outro']
-    : ['Venda', 'Perda', 'Ajuste', 'Outro'];
+  const carregarListaProdutos = useCallback(async () => {
+    try {
+      const lista = await listarProdutos();
+      setProdutos(lista);
+      setProduto((atual) => {
+        if (!atual) return null;
+        const correspondente = lista.find((p) => p.id === atual.id);
+        return correspondente || null;
+      });
+    } catch (erro) {
+      console.error('Erro ao carregar produtos para movimentações:', erro);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      carregarListaProdutos();
+    }, [carregarListaProdutos])
+  );
 
   function alterarTipo(novoTipo) {
     setTipo(novoTipo);
@@ -35,14 +62,23 @@ export default function Movimentacoes() {
     setMostrarMotivos(false);
   }
 
-  function validarMovimentacao() {
+  function limparCampos() {
+    setProduto(null);
+    setQuantidade('');
+    setMotivo('');
+    setObservacoes('');
+    setMostrarMotivos(false);
+    setMostrarProdutos(false);
+  }
+
+  async function validarERegistrar() {
     if (!produto) {
-      Alert.alert('Atenção', 'Selecione um produto.');
+      mostrarAlerta('Atenção', 'Selecione um produto.');
       return;
     }
 
     if (!/^[1-9]\d*$/.test(quantidade)) {
-      Alert.alert(
+      mostrarAlerta(
         'Atenção',
         'Informe uma quantidade inteira maior que zero.'
       );
@@ -50,25 +86,83 @@ export default function Movimentacoes() {
     }
 
     if (!motivo) {
-      Alert.alert('Atenção', 'Selecione um motivo.');
+      mostrarAlerta('Atenção', 'Selecione um motivo.');
       return;
     }
 
-    if (
-      tipo === 'Saída' &&
-      Number(quantidade) > produto.quantidade
-    ) {
-      Alert.alert(
+    const qtdNumerica = parseInt(quantidade, 10);
+
+    if (tipo === 'Saída' && qtdNumerica > produto.quantidade) {
+      mostrarAlerta(
         'Estoque insuficiente',
-        'A quantidade solicitada é maior que o estoque disponível.'
+        `A quantidade solicitada (${qtdNumerica} un.) é maior que o estoque atual (${produto.quantidade} un.). Por favor, confirme para tentar novamente.`,
+        [
+          {
+            text: 'Confirmar',
+            onPress: () => {
+              carregarListaProdutos();
+            },
+          },
+        ]
       );
       return;
     }
 
-    Alert.alert(
-      'Formulário validado',
-      'A movimentação será registrada quando integrarmos o SQLite.'
-    );
+    setSalvando(true);
+
+    try {
+      if (tipo === 'Entrada') {
+        await registrarEntrada(
+          produto.id,
+          qtdNumerica,
+          motivo,
+          observacoes.trim()
+        );
+      } else {
+        await registrarSaida(
+          produto.id,
+          qtdNumerica,
+          motivo,
+          observacoes.trim()
+        );
+      }
+
+      mostrarAlerta(
+        'Sucesso',
+        `${tipo} de ${qtdNumerica} un. de "${produto.nome}" registrada com sucesso!`,
+        [{ text: 'Confirmar' }]
+      );
+
+      limparCampos();
+      await carregarListaProdutos();
+    } catch (erro) {
+      console.error('Erro ao registrar movimentação:', erro);
+      const isEstoqueInsuficiente =
+        erro && erro.message && erro.message.toLowerCase().includes('estoque insuficiente');
+
+      if (isEstoqueInsuficiente) {
+        mostrarAlerta(
+          'Estoque insuficiente',
+          'A quantidade solicitada não está disponível no estoque atual. Por favor, confirme para tentar novamente.',
+          [
+            {
+              text: 'Confirmar',
+              onPress: () => {
+                carregarListaProdutos();
+              },
+            },
+          ]
+        );
+      } else {
+        mostrarAlerta(
+          'Erro',
+          erro.message || 'Falha ao registrar a movimentação no banco de dados.',
+          [{ text: 'Confirmar' }]
+        );
+      }
+    } finally {
+      setSalvando(false);
+    }
   }
 
   return (
@@ -80,20 +174,12 @@ export default function Movimentacoes() {
         keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
       >
-        {/* CABEÇALHO */}
-        <Text style={styles.nomeLoja}>
-          IMPÉRIO DAS SEDAS
-        </Text>
-
-        <Text style={styles.titulo}>
-          Movimentações
-        </Text>
-
+        <Text style={styles.nomeLoja}>IMPÉRIO DAS SEDAS</Text>
+        <Text style={styles.titulo}>Movimentações</Text>
         <Text style={styles.subtitulo}>
           Registre entradas e saídas do estoque
         </Text>
 
-        {/* TIPO DE MOVIMENTAÇÃO */}
         <View style={styles.linha}>
           {['Entrada', 'Saída'].map((item) => (
             <TouchableOpacity
@@ -130,42 +216,64 @@ export default function Movimentacoes() {
           ))}
         </View>
 
-        {/* PRODUTO */}
         <Text style={styles.label}>Produto *</Text>
 
         <TouchableOpacity
           style={styles.seletor}
           onPress={() => {
             if (produtos.length === 0) {
-              Alert.alert(
+              mostrarAlerta(
                 'Nenhum produto',
-                'Ainda não existem produtos cadastrados.'
+                'Ainda não existem produtos cadastrados no estoque.'
               );
+              return;
             }
+            setMostrarProdutos(!mostrarProdutos);
+            setMostrarMotivos(false);
           }}
         >
-          <Text style={styles.placeholder}>
-            {produto
-              ? produto.nome
-              : 'Selecione um produto'}
+          <Text
+            style={produto ? styles.texto : styles.placeholder}
+          >
+            {produto ? produto.nome : 'Selecione um produto'}
           </Text>
 
           <Ionicons
-            name="chevron-down"
+            name={mostrarProdutos ? 'chevron-up' : 'chevron-down'}
             size={20}
             color={cores.dourado}
           />
         </TouchableOpacity>
 
+        {mostrarProdutos && (
+          <View style={styles.lista}>
+            {produtos.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.opcao}
+                onPress={() => {
+                  setProduto(item);
+                  setMostrarProdutos(false);
+                }}
+              >
+                <View style={styles.linhaProdutoOpcao}>
+                  <Text style={styles.texto}>{item.nome}</Text>
+                  <Text style={styles.saldoTexto}>
+                    {item.quantidade} un. disponíveis
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         {tipo === 'Saída' && produto && (
           <Text style={styles.infoEstoque}>
-            Disponível: {produto.quantidade} unidades
+            Disponível para saída: {produto.quantidade} unidades
           </Text>
         )}
 
-        {/* QUANTIDADE */}
         <Text style={styles.label}>Quantidade *</Text>
-
         <TextInput
           style={styles.input}
           placeholder="0"
@@ -175,27 +283,23 @@ export default function Movimentacoes() {
           onChangeText={setQuantidade}
         />
 
-        {/* MOTIVO */}
         <Text style={styles.label}>Motivo *</Text>
 
         <TouchableOpacity
           style={styles.seletor}
-          onPress={() => setMostrarMotivos(!mostrarMotivos)}
+          onPress={() => {
+            setMostrarMotivos(!mostrarMotivos);
+            setMostrarProdutos(false);
+          }}
         >
           <Text
-            style={
-              motivo ? styles.texto : styles.placeholder
-            }
+            style={motivo ? styles.texto : styles.placeholder}
           >
             {motivo || 'Selecione o motivo'}
           </Text>
 
           <Ionicons
-            name={
-              mostrarMotivos
-                ? 'chevron-up'
-                : 'chevron-down'
-            }
+            name={mostrarMotivos ? 'chevron-up' : 'chevron-down'}
             size={20}
             color={cores.dourado}
           />
@@ -218,12 +322,10 @@ export default function Movimentacoes() {
           </View>
         )}
 
-        {/* OBSERVAÇÕES */}
         <Text style={styles.label}>Observações</Text>
-
         <TextInput
           style={[styles.input, styles.textoLongo]}
-          placeholder="Informações adicionais..."
+          placeholder="Informações adicionais da movimentação..."
           placeholderTextColor={cores.textoSecundario}
           multiline
           textAlignVertical="top"
@@ -231,25 +333,28 @@ export default function Movimentacoes() {
           onChangeText={setObservacoes}
         />
 
-        {/* REGISTRAR */}
         <TouchableOpacity
-          style={styles.botaoRegistrar}
-          onPress={validarMovimentacao}
+          style={[styles.botaoRegistrar, salvando && { opacity: 0.7 }]}
+          onPress={validarERegistrar}
+          disabled={salvando}
         >
-          <Ionicons
-            name="checkmark-circle-outline"
-            size={23}
-            color={cores.fundo}
-          />
-
-          <Text style={styles.textoBotao}>
-            Registrar {tipo.toLowerCase()}
-          </Text>
+          {salvando ? (
+            <ActivityIndicator size="small" color={cores.fundo} />
+          ) : (
+            <>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={23}
+                color={cores.fundo}
+              />
+              <Text style={styles.textoBotao}>
+                Registrar {tipo.toLowerCase()}
+              </Text>
+            </>
+          )}
         </TouchableOpacity>
 
-        <Text style={styles.obrigatorios}>
-          * Campos obrigatórios
-        </Text>
+        <Text style={styles.obrigatorios}>* Campos obrigatórios</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -368,6 +473,17 @@ const styles = StyleSheet.create({
     padding: 13,
     borderBottomWidth: 1,
     borderBottomColor: cores.borda,
+  },
+
+  linhaProdutoOpcao: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  saldoTexto: {
+    color: cores.dourado,
+    fontSize: 12,
   },
 
   infoEstoque: {
