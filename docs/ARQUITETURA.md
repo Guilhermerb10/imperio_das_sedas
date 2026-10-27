@@ -95,7 +95,7 @@ sequenceDiagram
     Usuario->>App: Abre o aplicativo
     App->>BD: inicializarBancoDados()
     BD->>SQLite: openDatabaseAsync('imperio_das_sedas.db')
-    BD->>SQLite: execAsync(PRAGMA foreign_keys = ON; DDL Tabelas)
+    BD->>SQLite: execAsync - ativa foreign keys e executa DDL das tabelas
     SQLite-->>BD: Instância do banco pronta
     BD-->>App: Inicialização concluída (Promise resolvida)
     App->>Nav: Renderiza NavigationContainer com tema Dark
