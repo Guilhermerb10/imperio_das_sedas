@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import {
   View,
@@ -29,7 +30,10 @@ export default function Historico() {
       const lista = await listarMovimentacoes();
       setMovimentacoes(lista);
     } catch (erro) {
-      console.error('Erro ao carregar movimentações do SQLite:', erro);
+      console.error(
+        'Erro ao carregar movimentações do SQLite:',
+        erro
+      );
     } finally {
       setCarregando(false);
     }
@@ -52,9 +56,11 @@ export default function Historico() {
   ).length;
 
   const movimentacoesFiltradas = movimentacoes.filter((item) => {
-    const correspondeBusca = (item.produtoNome || '')
-      .toLowerCase()
-      .includes(busca.toLowerCase());
+    const termoBusca = busca.toLowerCase();
+
+    const correspondeBusca = (
+      item.produtoNome || ''
+    ).toLowerCase().includes(termoBusca);
 
     if (!correspondeBusca) return false;
 
@@ -78,7 +84,9 @@ export default function Historico() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.nomeLoja}>IMPÉRIO DAS SEDAS</Text>
+
         <Text style={styles.titulo}>Histórico</Text>
+
         <Text style={styles.subtitulo}>
           Acompanhe as movimentações do estoque
         </Text>
@@ -90,7 +98,9 @@ export default function Historico() {
               size={23}
               color={cores.dourado}
             />
-            <Text style={styles.valor}>{carregando ? '...' : total}</Text>
+            <Text style={styles.valor}>
+              {carregando ? '...' : total}
+            </Text>
             <Text style={styles.textoCartao}>Total</Text>
           </View>
 
@@ -188,9 +198,14 @@ export default function Historico() {
             const isEntrada = item.tipo === 'Entrada';
 
             return (
-              <View key={item.id} style={styles.cartaoMovimentacao}>
+              <View
+                key={item.id}
+                style={styles.cartaoMovimentacao}
+              >
                 <View style={styles.cabecalhoMovimentacao}>
-                  <Text style={styles.nomeProduto}>{item.produtoNome}</Text>
+                  <Text style={styles.nomeProduto}>
+                    {item.produtoNome || 'Produto não informado'}
+                  </Text>
 
                   <View
                     style={[
@@ -209,13 +224,18 @@ export default function Historico() {
                           : 'arrow-up-outline'
                       }
                       size={14}
-                      color={isEntrada ? cores.sucesso : cores.erro}
+                      color={
+                        isEntrada ? cores.sucesso : cores.erro
+                      }
                     />
+
                     <Text
                       style={[
                         styles.tipoMovimentacao,
                         {
-                          color: isEntrada ? cores.sucesso : cores.erro,
+                          color: isEntrada
+                            ? cores.sucesso
+                            : cores.erro,
                         },
                       ]}
                     >
@@ -226,18 +246,27 @@ export default function Historico() {
 
                 <View style={styles.linhaDetalhe}>
                   <Text style={styles.detalhes}>
-                    Quantidade: <Text style={styles.destaque}>{item.quantidade} un.</Text>
+                    Quantidade:{' '}
+                    <Text style={styles.destaque}>
+                      {item.quantidade} un.
+                    </Text>
                   </Text>
+
                   <Text style={styles.detalhes}>
-                    Motivo: <Text style={styles.destaque}>{item.motivo}</Text>
+                    Motivo:{' '}
+                    <Text style={styles.destaque}>
+                      {item.motivo || 'Não informado'}
+                    </Text>
                   </Text>
                 </View>
 
-                {item.quantidadeAnterior !== undefined && item.quantidadePosterior !== undefined && (
-                  <Text style={styles.saldoAuditoria}>
-                    Saldo: {item.quantidadeAnterior} → {item.quantidadePosterior} un.
-                  </Text>
-                )}
+                {item.quantidadeAnterior !== undefined &&
+                  item.quantidadePosterior !== undefined && (
+                    <Text style={styles.saldoAuditoria}>
+                      Saldo: {item.quantidadeAnterior} →{' '}
+                      {item.quantidadePosterior} un.
+                    </Text>
+                  )}
 
                 {item.observacao ? (
                   <Text style={styles.observacao}>
@@ -245,7 +274,24 @@ export default function Historico() {
                   </Text>
                 ) : null}
 
-                <Text style={styles.data}>{item.data}</Text>
+                {item.tipo === 'Saída' && (
+                  <View style={styles.autorizadorContainer}>
+                    <Ionicons
+                      name="person-circle-outline"
+                      size={18}
+                      color={cores.dourado}
+                    />
+
+                    <Text style={styles.autorizador}>
+                      Autorizado por:{' '}
+                      {item.autorizadorNome || 'Não informado'}
+                    </Text>
+                  </View>
+                )}
+
+                <Text style={styles.data}>
+                  {item.data || 'Data não informada'}
+                </Text>
               </View>
             );
           })
@@ -422,6 +468,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 10,
+    gap: 8,
+    flexWrap: 'wrap',
   },
 
   detalhes: {
@@ -446,6 +494,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 6,
     fontStyle: 'italic',
+  },
+
+  autorizadorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 5,
+  },
+
+  autorizador: {
+    color: cores.dourado,
+    fontSize: 13,
+    fontWeight: '600',
+    flexShrink: 1,
   },
 
   data: {
