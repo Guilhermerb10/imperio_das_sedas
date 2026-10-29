@@ -3,16 +3,32 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { cores } from '../estilo/style';
 
-export default function CartaoIndicador({ titulo, valor, icone }) {
-  return (
-    <View style={styles.cartao}>
-      <Ionicons
-        name={icone}
-        size={24}
-        color={cores.dourado}
-      />
+export default function CartaoIndicador({
+  titulo,
+  valor,
+  icone,
+  alerta = false,
+  corValor,
+  corIcone,
+  tamanhoIcone,
+}) {
+  const iconeCor = corIcone || (alerta ? cores.erro : cores.dourado);
+  const valorCor = corValor || (alerta ? cores.erro : cores.branco);
+  const iconeTamanho = tamanhoIcone || (alerta ? 28 : 24);
 
-      <Text style={styles.valor}>{valor}</Text>
+  return (
+    <View style={[styles.cartao, alerta && styles.cartaoAlerta]}>
+      <View style={styles.blocoValor}>
+        <View style={styles.areaIcone}>
+          <Ionicons
+            name={icone}
+            size={iconeTamanho}
+            color={iconeCor}
+          />
+        </View>
+
+        <Text style={[styles.valor, { color: valorCor }]}>{valor}</Text>
+      </View>
 
       <Text style={styles.titulo}>{titulo}</Text>
     </View>
@@ -27,6 +43,23 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 135,
     justifyContent: 'space-between',
+  },
+
+  cartaoAlerta: {
+    borderWidth: 1,
+    borderColor: 'rgba(229, 115, 115, 0.45)',
+  },
+
+  blocoValor: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+  },
+
+  areaIcone: {
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   valor: {

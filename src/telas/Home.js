@@ -1,145 +1,167 @@
-import React, { useState } from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity,} from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { cores } from '../estilo/style';
 import CartaoIndicador from '../componentes/CartaoIndicador';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { obterIndicadores } from '../banco/BancoDados';
 
 export default function Home({ navigation }) {
-  // Estado inicial: estoque vazio
-  const [indicadores] = useState({
+  const [indicadores, setIndicadores] = useState({
     totalProdutos: 0,
     estoqueBaixo: 0,
     entradasMes: 0,
     saidasMes: 0,
   });
 
-  const [produtosEstoqueBaixo] = useState([]);
+  const [produtosEstoqueBaixo, setProdutosEstoqueBaixo] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelado = false;
+
+      async function carregarDados() {
+        try {
+          const dados = await obterIndicadores();
+          if (!cancelado) {
+            setIndicadores({
+              totalProdutos: dados.totalProdutos,
+              estoqueBaixo: dados.estoqueBaixo,
+              entradasMes: dados.entradasMes,
+              saidasMes: dados.saidasMes,
+            });
+            setProdutosEstoqueBaixo(dados.produtosEstoqueBaixo || []);
+          }
+        } catch (erro) {
+          console.error('Erro ao carregar indicadores:', erro);
+        } finally {
+          if (!cancelado) setCarregando(false);
+        }
+      }
+
+      carregarDados();
+
+      return () => {
+        cancelado = true;
+      };
+    }, [])
+  );
 
   return (
-    <SafeAreaView style ={styles.container} edges={['top']}>
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.conteudo}
-    >
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.conteudo}
+      >
+        <View style={styles.cabecalho}>
+          <View>
+            <Text style={styles.nomeLoja}>IMPÉRIO DAS SEDAS</Text>
+            <Text style={styles.titulo}>Visão geral</Text>
+            <Text style={styles.subtitulo}>Acompanhe seu estoque</Text>
+          </View>
 
-      {/* CABEÇALHO */}
-      <View style={styles.cabecalho}>
-        <View>
-          <Text style={styles.nomeLoja}>
-            IMPÉRIO DAS SEDAS
-          </Text>
-
-          <Text style={styles.titulo}>
-            Visão geral
-          </Text>
-
-          <Text style={styles.subtitulo}>
-            Acompanhe seu estoque
-          </Text>
-        </View>
-
-        <View style={styles.iconeCabecalho}>
-          <Ionicons
-            name="storefront-outline"
-            size={26}
-            color={cores.dourado}
-          />
-        </View>
-      </View>
-
-      {/* INDICADORES */}
-      <View style={styles.linha}>
-        <CartaoIndicador
-          titulo="Produtos cadastrados"
-          valor={indicadores.totalProdutos}
-          icone="cube-outline"
-        />
-
-        <CartaoIndicador
-          titulo="Estoque baixo"
-          valor={indicadores.estoqueBaixo}
-          icone="warning-outline"
-        />
-      </View>
-
-      <View style={styles.linha}>
-        <CartaoIndicador
-          titulo="Entradas no mês"
-          valor={indicadores.entradasMes}
-          icone="arrow-down-outline"
-        />
-
-        <CartaoIndicador
-          titulo="Saídas no mês"
-          valor={indicadores.saidasMes}
-          icone="arrow-up-outline"
-        />
-      </View>
-
-      {/* ESTOQUE BAIXO */}
-      <View style={styles.secao}>
-        <View style={styles.cabecalhoSecao}>
-          <Text style={styles.tituloSecao}>
-            Estoque baixo
-          </Text>
-
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Estoque')}
-          >
-            <Text style={styles.link}>
-              Ver todos →
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {produtosEstoqueBaixo.length === 0 ? (
-          <View style={styles.estadoVazio}>
+          <View style={styles.iconeCabecalho}>
             <Ionicons
-              name="cube-outline"
-              size={38}
+              name="storefront-outline"
+              size={26}
               color={cores.dourado}
             />
-
-            <Text style={styles.textoVazio}>
-              Nenhum produto cadastrado
-            </Text>
-
-            <Text style={styles.descricaoVazio}>
-              Os produtos com estoque baixo
-              aparecerão aqui.
-            </Text>
           </View>
-        ) : (
-          produtosEstoqueBaixo.map((produto) => (
-            <Text
-              key={produto.id}
-              style={styles.textoProduto}
+        </View>
+
+        <View style={styles.linha}>
+          <CartaoIndicador
+            titulo="Produtos cadastrados"
+            valor={carregando ? '...' : indicadores.totalProdutos}
+            icone="cube-outline"
+          />
+
+          <CartaoIndicador
+            titulo="Estoque baixo"
+            valor={carregando ? '...' : indicadores.estoqueBaixo}
+            icone={indicadores.estoqueBaixo > 0 ? 'warning' : 'warning-outline'}
+            alerta={indicadores.estoqueBaixo > 0}
+          />
+        </View>
+
+        <View style={styles.linha}>
+          <CartaoIndicador
+            titulo="Entradas no mês"
+            valor={carregando ? '...' : indicadores.entradasMes}
+            icone="arrow-down-outline"
+          />
+
+          <CartaoIndicador
+            titulo="Saídas no mês"
+            valor={carregando ? '...' : indicadores.saidasMes}
+            icone="arrow-up-outline"
+          />
+        </View>
+
+        <View style={styles.secao}>
+          <View style={styles.cabecalhoSecao}>
+            <Text style={styles.tituloSecao}>Estoque baixo</Text>
+
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Estoque')}
             >
-              {produto.nome}
-            </Text>
-          ))
-        )}
-      </View>
+              <Text style={styles.link}>Ver todos →</Text>
+            </TouchableOpacity>
+          </View>
 
-      {/* BOTÃO CADASTRO */}
-      <TouchableOpacity
-        style={styles.botao}
-        onPress={() => navigation.navigate('CadastroProduto')}
-      >
-        <Ionicons
-          name="add"
-          size={24}
-          color={cores.fundo}
-        />
+          {carregando ? (
+            <ActivityIndicator size="small" color={cores.dourado} style={{ marginVertical: 20 }} />
+          ) : produtosEstoqueBaixo.length === 0 ? (
+            <View style={styles.estadoVazio}>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={38}
+                color={cores.sucesso}
+              />
 
-        <Text style={styles.textoBotao}>
-          Cadastrar produto
-        </Text>
-      </TouchableOpacity>
+              <Text style={styles.textoVazio}>
+                Nenhum produto com estoque crítico
+              </Text>
 
-    </ScrollView>
+              <Text style={styles.descricaoVazio}>
+                Os produtos com estoque baixo ou igual ao limite mínimo aparecerão aqui.
+              </Text>
+            </View>
+          ) : (
+            produtosEstoqueBaixo.map((produto) => (
+              <View key={produto.id} style={styles.itemEstoqueBaixo}>
+                <View style={styles.itemInfo}>
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={20}
+                    color={cores.erro}
+                  />
+                  <Text style={styles.textoProduto}>{produto.nome}</Text>
+                </View>
+                <Text style={styles.quantidadeBaixa}>
+                  {produto.quantidade} / {produto.estoqueMinimo} un.
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+
+        <TouchableOpacity
+          style={styles.botao}
+          onPress={() => navigation.navigate('CadastroProduto')}
+        >
+          <Ionicons
+            name="add"
+            size={24}
+            color={cores.fundo}
+          />
+
+          <Text style={styles.textoBotao}>Cadastrar produto</Text>
+        </TouchableOpacity>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -237,10 +259,32 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  itemEstoqueBaixo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: cores.borda,
+  },
+
+  itemInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+
   textoProduto: {
     color: cores.branco,
     fontSize: 14,
-    marginTop: 12,
+    flex: 1,
+  },
+
+  quantidadeBaixa: {
+    color: cores.erro,
+    fontSize: 13,
+    fontWeight: 'bold',
   },
 
   botao: {
@@ -260,3 +304,4 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
+

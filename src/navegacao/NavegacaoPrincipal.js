@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -15,7 +14,6 @@ import { cores } from '../estilo/style';
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-// Menu inferior do aplicativo
 function MenuPrincipal() {
   return (
     <Tab.Navigator
@@ -73,7 +71,6 @@ function MenuPrincipal() {
   );
 }
 
-// Navegação entre o menu e as telas adicionais
 export default function NavegacaoPrincipal() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>

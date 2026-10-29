@@ -1,20 +1,70 @@
-
-import React, { useState } from 'react';
-import {View, Text, TextInput, ScrollView,
-TouchableOpacity, StyleSheet,} from 'react-native';
+import React, { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { cores } from '../estilo/style';
+import { mostrarAlerta } from '../util/alerta';
+import { listarProdutos, excluirProduto } from '../banco/BancoDados';
 
 export default function Estoque({ navigation }) {
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('Todos');
-
-  // Lista vazia até a integração com SQLite
-  const [produtos] = useState([]);
+  const [produtos, setProdutos] = useState([]);
+  const [carregando, setCarregando] = useState(true);
 
   const filtros = ['Todos', 'Estoque baixo', 'Esgotados'];
+
+  const carregarProdutos = useCallback(async () => {
+    try {
+      setCarregando(true);
+      const lista = await listarProdutos();
+      setProdutos(lista);
+    } catch (erro) {
+      console.error('Erro ao carregar produtos:', erro);
+      mostrarAlerta('Erro', 'Não foi possível carregar os produtos do banco.');
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      carregarProdutos();
+    }, [carregarProdutos])
+  );
+
+  function confirmarExclusao(produto) {
+    mostrarAlerta(
+      'Excluir produto',
+      `Deseja realmente excluir "${produto.nome}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await excluirProduto(produto.id);
+              mostrarAlerta('Sucesso', 'Produto excluído com sucesso.');
+              carregarProdutos();
+            } catch (erro) {
+              mostrarAlerta('Não é possível excluir', erro.message);
+            }
+          },
+        },
+      ]
+    );
+  }
 
   const produtosFiltrados = produtos.filter((produto) => {
     const correspondeBusca = produto.nome
@@ -24,8 +74,10 @@ export default function Estoque({ navigation }) {
     if (!correspondeBusca) return false;
 
     if (filtro === 'Estoque baixo') {
-      return produto.quantidade > 0 &&
-        produto.quantidade <= produto.estoqueMinimo;
+      return (
+        produto.quantidade > 0 &&
+        produto.quantidade <= produto.estoqueMinimo
+      );
     }
 
     if (filtro === 'Esgotados') {
@@ -41,18 +93,10 @@ export default function Estoque({ navigation }) {
         contentContainerStyle={styles.conteudo}
         keyboardShouldPersistTaps="handled"
       >
-        {/* CABEÇALHO */}
-        <Text style={styles.nomeLoja}>
-          IMPÉRIO DAS SEDAS
-        </Text>
-
+        <Text style={styles.nomeLoja}>IMPÉRIO DAS SEDAS</Text>
         <Text style={styles.titulo}>Estoque</Text>
+        <Text style={styles.subtitulo}>Gerencie seus produtos</Text>
 
-        <Text style={styles.subtitulo}>
-          Gerencie seus produtos
-        </Text>
-
-        {/* CAMPO DE BUSCA */}
         <View style={styles.campoBusca}>
           <Ionicons
             name="search-outline"
@@ -70,7 +114,6 @@ export default function Estoque({ navigation }) {
           />
         </View>
 
-        {/* FILTROS */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -98,8 +141,13 @@ export default function Estoque({ navigation }) {
           ))}
         </ScrollView>
 
-        {/* LISTA DE PRODUTOS */}
-        {produtosFiltrados.length === 0 ? (
+        {carregando ? (
+          <ActivityIndicator
+            size="large"
+            color={cores.dourado}
+            style={{ marginVertical: 40 }}
+          />
+        ) : produtosFiltrados.length === 0 ? (
           <View style={styles.estadoVazio}>
             <Ionicons
               name="cube-outline"
@@ -120,20 +168,91 @@ export default function Estoque({ navigation }) {
             </Text>
           </View>
         ) : (
-          produtosFiltrados.map((produto) => (
-            <View key={produto.id} style={styles.cartaoProduto}>
-              <Text style={styles.nomeProduto}>
-                {produto.nome}
-              </Text>
+          produtosFiltrados.map((produto) => {
+            const isEsgotado = produto.quantidade === 0;
+            const isBaixo =
+              produto.quantidade > 0 &&
+              produto.quantidade <= produto.estoqueMinimo;
 
-              <Text style={styles.quantidadeProduto}>
-                Quantidade: {produto.quantidade}
-              </Text>
-            </View>
-          ))
+            return (
+              <View key={produto.id} style={styles.cartaoProduto}>
+                <View style={styles.cabecalhoProduto}>
+                  <View style={styles.infoPrincipal}>
+                    <Text style={styles.nomeProduto}>{produto.nome}</Text>
+                    {produto.categoria ? (
+                      <View style={styles.tagCategoria}>
+                        <Text style={styles.textoTagCategoria}>
+                          {produto.categoria}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.botoesAcao}>
+                    <TouchableOpacity
+                      style={styles.botaoAcao}
+                      onPress={() =>
+                        navigation.navigate('CadastroProduto', {
+                          produtoId: produto.id,
+                        })
+                      }
+                    >
+                      <Ionicons
+                        name="create-outline"
+                        size={20}
+                        color={cores.dourado}
+                      />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.botaoAcao}
+                      onPress={() => confirmarExclusao(produto)}
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={20}
+                        color={cores.erro}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.linhaInfo}>
+                  <Text style={styles.quantidadeProduto}>
+                    Quantidade: {produto.quantidade} un.
+                  </Text>
+
+                  {isEsgotado ? (
+                    <Text style={[styles.badge, styles.badgeEsgotado]}>
+                      Esgotado
+                    </Text>
+                  ) : isBaixo ? (
+                    <Text style={[styles.badge, styles.badgeBaixo]}>
+                      Estoque baixo (mín: {produto.estoqueMinimo})
+                    </Text>
+                  ) : (
+                    <Text style={[styles.badge, styles.badgeNormal]}>
+                      Em estoque
+                    </Text>
+                  )}
+                </View>
+
+                {produto.codigo ? (
+                  <Text style={styles.codigoProduto}>
+                    Código: {produto.codigo}
+                  </Text>
+                ) : null}
+
+                {produto.precoCusto ? (
+                  <Text style={styles.precoProduto}>
+                    Custo: {produto.precoCusto}
+                  </Text>
+                ) : null}
+              </View>
+            );
+          })
         )}
 
-        {/* BOTÃO ADICIONAR */}
         <TouchableOpacity
           style={styles.botaoAdicionar}
           onPress={() => navigation.navigate('CadastroProduto')}
@@ -144,9 +263,7 @@ export default function Estoque({ navigation }) {
             color={cores.fundo}
           />
 
-          <Text style={styles.textoBotao}>
-            Adicionar produto
-          </Text>
+          <Text style={styles.textoBotao}>Adicionar produto</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -261,15 +378,93 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
+  cabecalhoProduto: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+
+  infoPrincipal: {
+    flex: 1,
+    marginRight: 10,
+  },
+
   nomeProduto: {
     color: cores.branco,
     fontSize: 16,
     fontWeight: 'bold',
   },
 
+  tagCategoria: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(213, 181, 109, 0.15)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginTop: 6,
+  },
+
+  textoTagCategoria: {
+    color: cores.dourado,
+    fontSize: 11,
+    fontWeight: '500',
+  },
+
+  botoesAcao: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+
+  botaoAcao: {
+    padding: 6,
+  },
+
+  linhaInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+
   quantidadeProduto: {
+    color: cores.branco,
+    fontSize: 14,
+  },
+
+  badge: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+
+  badgeEsgotado: {
+    backgroundColor: 'rgba(229, 115, 115, 0.2)',
+    color: cores.erro,
+  },
+
+  badgeBaixo: {
+    backgroundColor: 'rgba(229, 115, 115, 0.15)',
+    color: cores.erro,
+  },
+
+  badgeNormal: {
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    color: cores.sucesso,
+  },
+
+  codigoProduto: {
     color: cores.textoSecundario,
+    fontSize: 12,
     marginTop: 8,
+  },
+
+  precoProduto: {
+    color: cores.textoSecundario,
+    fontSize: 12,
+    marginTop: 4,
   },
 
   botaoAdicionar: {
