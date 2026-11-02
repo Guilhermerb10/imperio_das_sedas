@@ -196,6 +196,22 @@ export default function Historico() {
         ) : (
           movimentacoesFiltradas.map((item) => {
             const isEntrada = item.tipo === 'Entrada';
+            const isSaida = item.tipo === 'Saída';
+            const isAcaoProduto = !isEntrada && !isSaida;
+            const corTipo = isEntrada
+              ? cores.sucesso
+              : isSaida
+                ? cores.erro
+                : cores.dourado;
+            const iconeTipo = isEntrada
+              ? 'arrow-down-outline'
+              : isSaida
+                ? 'arrow-up-outline'
+                : item.tipo === 'Exclusão de produto'
+                  ? 'trash-outline'
+                  : item.tipo === 'Edição de produto'
+                    ? 'create-outline'
+                    : 'add-circle-outline';
 
             return (
               <View
@@ -213,29 +229,23 @@ export default function Historico() {
                       {
                         backgroundColor: isEntrada
                           ? 'rgba(76, 175, 80, 0.15)'
-                          : 'rgba(229, 115, 115, 0.15)',
+                          : isSaida
+                            ? 'rgba(229, 115, 115, 0.15)'
+                            : 'rgba(213, 181, 109, 0.15)',
                       },
                     ]}
                   >
                     <Ionicons
-                      name={
-                        isEntrada
-                          ? 'arrow-down-outline'
-                          : 'arrow-up-outline'
-                      }
+                      name={iconeTipo}
                       size={14}
-                      color={
-                        isEntrada ? cores.sucesso : cores.erro
-                      }
+                      color={corTipo}
                     />
 
                     <Text
                       style={[
                         styles.tipoMovimentacao,
                         {
-                          color: isEntrada
-                            ? cores.sucesso
-                            : cores.erro,
+                          color: corTipo,
                         },
                       ]}
                     >
@@ -244,37 +254,48 @@ export default function Historico() {
                   </View>
                 </View>
 
-                <View style={styles.linhaDetalhe}>
-                  <Text style={styles.detalhes}>
-                    Quantidade:{' '}
-                    <Text style={styles.destaque}>
-                      {item.quantidade} un.
+                {isAcaoProduto ? (
+                  <View style={styles.linhaDetalhe}>
+                    <Text style={styles.detalhes}>
+                      Ação: <Text style={styles.destaque}>{item.motivo}</Text>
                     </Text>
-                  </Text>
-
-                  <Text style={styles.detalhes}>
-                    Motivo:{' '}
-                    <Text style={styles.destaque}>
-                      {item.motivo || 'Não informado'}
+                    <Text style={styles.detalhes}>
+                      {item.observacao || 'Ação registrada'}
                     </Text>
-                  </Text>
-                </View>
+                  </View>
+                ) : (
+                  <View style={styles.linhaDetalhe}>
+                    <Text style={styles.detalhes}>
+                      Quantidade:{' '}
+                      <Text style={styles.destaque}>
+                        {item.quantidade} un.
+                      </Text>
+                    </Text>
 
-                {item.quantidadeAnterior !== undefined &&
-                  item.quantidadePosterior !== undefined && (
+                    <Text style={styles.detalhes}>
+                      Motivo:{' '}
+                      <Text style={styles.destaque}>
+                        {item.motivo || 'Não informado'}
+                      </Text>
+                    </Text>
+                  </View>
+                )}
+
+                {item.quantidadeAnterior != null &&
+                  item.quantidadePosterior != null && (
                     <Text style={styles.saldoAuditoria}>
                       Saldo: {item.quantidadeAnterior} →{' '}
                       {item.quantidadePosterior} un.
                     </Text>
                   )}
 
-                {item.observacao ? (
+                {!isAcaoProduto && item.observacao ? (
                   <Text style={styles.observacao}>
                     Obs: {item.observacao}
                   </Text>
                 ) : null}
 
-                {item.tipo === 'Saída' && (
+                {item.autorizadorNome && (
                   <View style={styles.autorizadorContainer}>
                     <Ionicons
                       name="person-circle-outline"
@@ -283,7 +304,7 @@ export default function Historico() {
                     />
 
                     <Text style={styles.autorizador}>
-                      Autorizado por:{' '}
+                      Registrado por:{' '}
                       {item.autorizadorNome || 'Não informado'}
                     </Text>
                   </View>

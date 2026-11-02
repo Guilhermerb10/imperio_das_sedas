@@ -57,6 +57,15 @@ O **Império das Sedas** é uma solução voltada para o gerenciamento operacion
    - Auditoria cronológica reversa de todas as transações realizadas no estoque.
    - Totalizadores gerais e por tipo de movimentação.
    - Visualização do saldo anterior, quantidade movimentada e saldo resultante.
+   - Identificação do usuário que registrou cada movimentação.
+
+6. **Acesso por perfil:**
+   - No primeiro acesso, o administrador cria seu próprio usuário e senha.
+   - Funcionários consultam o estoque, cadastram, editam e removem produtos, além de registrar entradas e saídas.
+   - Cada ação de funcionário pede a confirmação da senha; o histórico identifica quem fez a movimentação ou alteração de produto.
+   - O administrador gerencia os acessos pelo ícone de engrenagem na tela inicial.
+
+> **Armazenamento:** os usuários e os dados do estoque ficam no SQLite local de cada aparelho. Para compartilhar o mesmo cadastro, estoque e histórico entre celulares, será necessário conectar o aplicativo a um serviço remoto; essa sincronização não está incluída.
 
 ---
 

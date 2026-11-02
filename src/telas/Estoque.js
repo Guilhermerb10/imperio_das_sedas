@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,13 +15,20 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { cores } from '../estilo/style';
 import { mostrarAlerta } from '../util/alerta';
+import { validarSenhaColaborador } from '../banco/AutorizacaoEstoque';
 import { listarProdutos, excluirProduto } from '../banco/BancoDados';
 
-export default function Estoque({ navigation }) {
+export default function Estoque({ navigation, usuario, onSair }) {
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('Todos');
   const [produtos, setProdutos] = useState([]);
   const [carregando, setCarregando] = useState(true);
+  const [produtoExclusao, setProdutoExclusao] = useState(null);
+  const [modalSenha, setModalSenha] = useState(false);
+  const [senhaDigitada, setSenhaDigitada] = useState('');
+  const [erroSenha, setErroSenha] = useState('');
+  const [validandoSenha, setValidandoSenha] = useState(false);
+  const ehFuncionario = usuario?.perfil === 'funcionario';
 
   const filtros = ['Todos', 'Estoque baixo', 'Esgotados'];
 
@@ -53,17 +61,61 @@ export default function Estoque({ navigation }) {
           text: 'Excluir',
           style: 'destructive',
           onPress: async () => {
-            try {
-              await excluirProduto(produto.id);
-              mostrarAlerta('Sucesso', 'Produto excluído com sucesso.');
-              carregarProdutos();
-            } catch (erro) {
-              mostrarAlerta('Não é possível excluir', erro.message);
+            if (ehFuncionario) {
+              setProdutoExclusao(produto);
+              setSenhaDigitada('');
+              setErroSenha('');
+              setModalSenha(true);
+            } else {
+              await excluirProdutoAutorizado(produto);
             }
           },
         },
       ]
     );
+  }
+
+  async function excluirProdutoAutorizado(produto, responsavel = usuario) {
+    try {
+      await excluirProduto(produto.id, responsavel?.id, responsavel?.nome);
+      setModalSenha(false);
+      setProdutoExclusao(null);
+      mostrarAlerta('Sucesso', 'Produto excluído do estoque ativo. A ação ficou registrada no histórico.');
+      await carregarProdutos();
+    } catch (erro) {
+      setModalSenha(false);
+      mostrarAlerta('Não foi possível excluir', erro.message);
+    }
+  }
+
+  async function confirmarSenhaExclusao() {
+    if (!senhaDigitada.trim()) {
+      setErroSenha('Informe sua senha para confirmar a exclusão.');
+      return;
+    }
+
+    if (validandoSenha || !produtoExclusao) return;
+
+    setValidandoSenha(true);
+    setErroSenha('');
+
+    try {
+      const colaborador = await validarSenhaColaborador(
+        senhaDigitada,
+        usuario?.id
+      );
+
+      if (!colaborador) {
+        setErroSenha('Senha incorreta. Confira sua senha e tente novamente.');
+        return;
+      }
+
+      await excluirProdutoAutorizado(produtoExclusao, colaborador);
+    } catch (erro) {
+      setErroSenha(erro?.message || 'Não foi possível validar sua senha.');
+    } finally {
+      setValidandoSenha(false);
+    }
   }
 
   const produtosFiltrados = produtos.filter((produto) => {
@@ -93,9 +145,24 @@ export default function Estoque({ navigation }) {
         contentContainerStyle={styles.conteudo}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.nomeLoja}>IMPÉRIO DAS SEDAS</Text>
-        <Text style={styles.titulo}>Estoque</Text>
-        <Text style={styles.subtitulo}>Gerencie seus produtos</Text>
+        <View style={styles.cabecalhoTela}>
+          <View style={styles.titulosCabecalho}>
+            <Text style={styles.nomeLoja}>IMPÉRIO DAS SEDAS</Text>
+            <Text style={styles.titulo}>Estoque</Text>
+            <Text style={styles.subtitulo}>
+              {ehFuncionario ? 'Consulte os produtos e seus saldos' : 'Gerencie seus produtos'}
+            </Text>
+          </View>
+          {ehFuncionario ? (
+            <TouchableOpacity
+              style={styles.botaoSair}
+              onPress={onSair}
+              accessibilityLabel="Sair da conta"
+            >
+              <Ionicons name="log-out-outline" size={22} color={cores.dourado} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
 
         <View style={styles.campoBusca}>
           <Ionicons
@@ -196,6 +263,7 @@ export default function Estoque({ navigation }) {
                           produtoId: produto.id,
                         })
                       }
+                      accessibilityLabel={`Editar ${produto.nome}`}
                     >
                       <Ionicons
                         name="create-outline"
@@ -207,6 +275,7 @@ export default function Estoque({ navigation }) {
                     <TouchableOpacity
                       style={styles.botaoAcao}
                       onPress={() => confirmarExclusao(produto)}
+                      accessibilityLabel={`Excluir ${produto.nome}`}
                     >
                       <Ionicons
                         name="trash-outline"
@@ -263,9 +332,72 @@ export default function Estoque({ navigation }) {
             color={cores.fundo}
           />
 
-          <Text style={styles.textoBotao}>Adicionar produto</Text>
+          <Text style={styles.textoBotao}>Cadastrar produto</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <Modal
+        visible={modalSenha}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (validandoSenha) return;
+          setModalSenha(false);
+          setProdutoExclusao(null);
+          setSenhaDigitada('');
+          setErroSenha('');
+        }}
+      >
+        <View style={styles.fundoModal}>
+          <View style={styles.conteudoModal}>
+            <Text style={styles.tituloModal}>Confirmar exclusão</Text>
+            <Text style={styles.textoModal}>
+              Para excluir {produtoExclusao?.nome}, confirme sua senha.
+            </Text>
+            <TextInput
+              style={styles.inputSenha}
+              placeholder="Sua senha"
+              placeholderTextColor={cores.textoSecundario}
+              value={senhaDigitada}
+              onChangeText={valor => {
+                setSenhaDigitada(valor);
+                setErroSenha('');
+              }}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!validandoSenha}
+              onSubmitEditing={confirmarSenhaExclusao}
+              returnKeyType="done"
+            />
+            {erroSenha ? <Text style={styles.erroSenha}>{erroSenha}</Text> : null}
+            <TouchableOpacity
+              style={styles.botaoConfirmarSenha}
+              onPress={confirmarSenhaExclusao}
+              disabled={validandoSenha}
+            >
+              {validandoSenha ? (
+                <ActivityIndicator color={cores.fundo} />
+              ) : (
+                <Text style={styles.textoBotaoModal}>Confirmar exclusão</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.botaoCancelar}
+              onPress={() => {
+                if (validandoSenha) return;
+                setModalSenha(false);
+                setProdutoExclusao(null);
+                setSenhaDigitada('');
+                setErroSenha('');
+              }}
+              disabled={validandoSenha}
+            >
+              <Text style={styles.textoCancelar}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -286,6 +418,90 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 1.5,
+  },
+
+  cabecalhoTela: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  titulosCabecalho: {
+    flex: 1,
+  },
+
+  botaoSair: {
+    padding: 10,
+    marginLeft: 8,
+  },
+
+  fundoModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  conteudoModal: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: cores.cartao,
+    borderRadius: 18,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: cores.borda,
+  },
+  tituloModal: {
+    color: cores.branco,
+    fontSize: 21,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  textoModal: {
+    color: cores.textoSecundario,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  inputSenha: {
+    minHeight: 50,
+    backgroundColor: cores.fundo,
+    color: cores.branco,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: cores.borda,
+    paddingHorizontal: 14,
+    fontSize: 15,
+  },
+  erroSenha: {
+    color: cores.erro,
+    fontSize: 13,
+    marginTop: 10,
+  },
+  botaoConfirmarSenha: {
+    minHeight: 50,
+    backgroundColor: cores.dourado,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
+  },
+  textoBotaoModal: {
+    color: cores.fundo,
+    fontWeight: 'bold',
+  },
+  botaoCancelar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    marginTop: 4,
+  },
+  textoCancelar: {
+    color: cores.textoSecundario,
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   titulo: {

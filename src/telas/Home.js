@@ -8,7 +8,7 @@ import { cores } from '../estilo/style';
 import CartaoIndicador from '../componentes/CartaoIndicador';
 import { obterIndicadores } from '../banco/BancoDados';
 
-export default function Home({ navigation }) {
+export default function Home({ navigation, onSair }) {
   const [indicadores, setIndicadores] = useState({
     totalProdutos: 0,
     estoqueBaixo: 0,
@@ -63,12 +63,30 @@ export default function Home({ navigation }) {
             <Text style={styles.subtitulo}>Acompanhe seu estoque</Text>
           </View>
 
-          <View style={styles.iconeCabecalho}>
-            <Ionicons
-              name="storefront-outline"
-              size={26}
-              color={cores.dourado}
-            />
+          <View style={styles.acoesCabecalho}>
+            <TouchableOpacity
+              style={styles.iconeCabecalho}
+              onPress={() => navigation.navigate('Funcionarios')}
+              accessibilityLabel="Gerenciar funcionários"
+            >
+              <Ionicons
+                name="settings-outline"
+                size={24}
+                color={cores.dourado}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.iconeCabecalho}
+              onPress={onSair}
+              accessibilityLabel="Sair da conta"
+            >
+              <Ionicons
+                name="log-out-outline"
+                size={24}
+                color={cores.dourado}
+              />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -208,6 +226,11 @@ const styles = StyleSheet.create({
     backgroundColor: cores.cartao,
     padding: 14,
     borderRadius: 14,
+  },
+
+  acoesCabecalho: {
+    flexDirection: 'row',
+    gap: 8,
   },
 
   linha: {

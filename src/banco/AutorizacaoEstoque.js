@@ -1,41 +1,20 @@
-const colaboradores = [
-  {
-    id: 1,
-    nome: 'Victor',
-    senha: '1234',
-    ativo: true,
-  },
-  {
-    id: 2,
-    nome: 'Guilherme',
-    senha: '4321',
-    ativo: true,
-  },
-];
+import {
+  listarFuncionarios,
+  validarSenhaFuncionario,
+} from './BancoDados';
 
-export function validarSenhaColaborador(senha) {
-  if (typeof senha !== 'string' || !senha.trim()) {
+export async function validarSenhaColaborador(senha, colaboradorId) {
+  if (typeof senha !== 'string' || !senha.trim() || !colaboradorId) {
     return null;
   }
 
-  const colaborador = colaboradores.find(
-    (item) =>
-      item.ativo === true &&
-      item.senha === senha.trim()
-  );
-
-  if (!colaborador) {
-    return null;
-  }
-
-  return {
-    id: colaborador.id,
-    nome: colaborador.nome,
-  };
+  return await validarSenhaFuncionario(colaboradorId, senha);
 }
 
-export function listarColaboradores() {
-  return colaboradores
+export async function listarColaboradores() {
+  const funcionarios = await listarFuncionarios();
+
+  return funcionarios
     .filter((item) => item.ativo)
     .map(({ id, nome }) => ({ id, nome }));
 }

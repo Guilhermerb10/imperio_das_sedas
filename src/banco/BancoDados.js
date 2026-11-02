@@ -42,7 +42,8 @@ export async function inicializarBancoDados() {
           preco_custo TEXT DEFAULT '',
           observacoes TEXT DEFAULT '',
           criado_em TEXT DEFAULT CURRENT_TIMESTAMP,
-          atualizado_em TEXT DEFAULT CURRENT_TIMESTAMP
+          atualizado_em TEXT DEFAULT CURRENT_TIMESTAMP,
+          ativo INTEGER NOT NULL DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS movimentacoes (
@@ -58,7 +59,38 @@ export async function inicializarBancoDados() {
           autorizador_nome TEXT DEFAULT '',
           data TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS usuarios (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          nome TEXT NOT NULL,
+          usuario TEXT NOT NULL UNIQUE,
+          senha TEXT NOT NULL,
+          perfil TEXT NOT NULL DEFAULT 'funcionario',
+          ativo INTEGER NOT NULL DEFAULT 1,
+          criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS auditoria_produtos (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          produto_id INTEGER,
+          produto_nome TEXT NOT NULL,
+          acao TEXT NOT NULL,
+          detalhe TEXT DEFAULT '',
+          usuario_id INTEGER,
+          usuario_nome TEXT DEFAULT '',
+          data TEXT DEFAULT CURRENT_TIMESTAMP
+        );
       `);
+
+      const colunasProdutos = await database.getAllAsync(
+        'PRAGMA table_info(produtos);'
+      );
+
+      if (!colunasProdutos.some(coluna => coluna.name === 'ativo')) {
+        await database.execAsync(
+          'ALTER TABLE produtos ADD COLUMN ativo INTEGER NOT NULL DEFAULT 1;'
+        );
+      }
 
      
       const colunas = await database.getAllAsync(
@@ -109,6 +141,7 @@ export async function listarProdutos() {
       p.categoria_id AS categoriaId
     FROM produtos p
     LEFT JOIN categorias c ON p.categoria_id = c.id
+    WHERE p.ativo = 1
     ORDER BY p.nome;
   `);
 }
@@ -129,7 +162,7 @@ export async function buscarProdutoPorId(id) {
       p.categoria_id AS categoriaId
     FROM produtos p
     LEFT JOIN categorias c ON p.categoria_id = c.id
-    WHERE p.id = ?;`,
+    WHERE p.id = ? AND p.ativo = 1;`,
     [id]
   );
 
@@ -165,9 +198,20 @@ export async function cadastrarProduto({
   quantidade,
   estoqueMinimo,
   precoCusto,
-  observacoes
+  observacoes,
+  usuarioId = null,
+  usuarioNome = ''
 }) {
   await inicializarBancoDados();
+
+  const codigoExistente = await db.getFirstAsync(
+    'SELECT id FROM produtos WHERE codigo = ?;',
+    [codigo.trim()]
+  );
+
+  if (codigoExistente) {
+    throw new Error('Código já cadastrado');
+  }
 
   const categoriaId = await obterOuCriarCategoria(categoria);
   const qtd = parseInt(quantidade, 10) || 0;
@@ -194,6 +238,13 @@ export async function cadastrarProduto({
 
     produtoId = resultado.lastInsertRowId;
 
+    await db.runAsync(
+      `INSERT INTO auditoria_produtos (
+        produto_id, produto_nome, acao, detalhe, usuario_id, usuario_nome
+      ) VALUES (?, ?, 'Cadastro', 'Produto cadastrado', ?, ?);`,
+      [produtoId, nome, usuarioId, usuarioNome || '']
+    );
+
     if (qtd > 0) {
       await db.runAsync(
         `INSERT INTO movimentacoes (
@@ -202,9 +253,11 @@ export async function cadastrarProduto({
           quantidade,
           quantidade_anterior,
           quantidade_posterior,
-          motivo
-        ) VALUES (?, 'Entrada', ?, 0, ?, 'Cadastro inicial');`,
-        [produtoId, qtd, qtd]
+          motivo,
+          autorizador_id,
+          autorizador_nome
+        ) VALUES (?, 'Entrada', ?, 0, ?, 'Cadastro inicial', ?, ?);`,
+        [produtoId, qtd, qtd, usuarioId, usuarioNome || '']
       );
     }
   });
@@ -219,9 +272,20 @@ export async function atualizarProduto(id, {
   quantidade,
   estoqueMinimo,
   precoCusto,
-  observacoes
+  observacoes,
+  usuarioId = null,
+  usuarioNome = ''
 }) {
   await inicializarBancoDados();
+
+  const codigoExistente = await db.getFirstAsync(
+    'SELECT id FROM produtos WHERE codigo = ? AND id != ?;',
+    [codigo.trim(), id]
+  );
+
+  if (codigoExistente) {
+    throw new Error('Código já cadastrado');
+  }
 
   const categoriaId = await obterOuCriarCategoria(categoria);
   const qtd = parseInt(quantidade, 10) || 0;
@@ -230,6 +294,15 @@ export async function atualizarProduto(id, {
   let changes = 0;
 
   await executarTransacao(async () => {
+    const produtoAnterior = await db.getFirstAsync(
+      'SELECT quantidade, estoque_minimo FROM produtos WHERE id = ? AND ativo = 1;',
+      [id]
+    );
+
+    if (!produtoAnterior) {
+      throw new Error('Produto não encontrado.');
+    }
+
     const resultado = await db.runAsync(
       `UPDATE produtos
        SET nome = ?, codigo = ?, categoria_id = ?,
@@ -250,38 +323,64 @@ export async function atualizarProduto(id, {
     );
 
     changes = resultado.changes;
+
+    if (changes > 0) {
+      const detalhe =
+        `Saldo: ${produtoAnterior.quantidade} → ${qtd}; ` +
+        `estoque mínimo: ${produtoAnterior.estoque_minimo} → ${estMin}.`;
+
+      await db.runAsync(
+        `INSERT INTO auditoria_produtos (
+          produto_id, produto_nome, acao, detalhe, usuario_id, usuario_nome
+        ) VALUES (?, ?, 'Edição', ?, ?, ?);`,
+        [id, nome, detalhe, usuarioId, usuarioNome || '']
+      );
+    }
   });
 
   return changes;
 }
 
-export async function excluirProduto(id) {
+export async function excluirProduto(id, usuarioId = null, usuarioNome = '') {
   await inicializarBancoDados();
 
-  const movimentacao = await db.getFirstAsync(
-    'SELECT id FROM movimentacoes WHERE produto_id = ? LIMIT 1;',
+  const produto = await db.getFirstAsync(
+    'SELECT nome, codigo FROM produtos WHERE id = ? AND ativo = 1;',
     [id]
   );
 
-  if (movimentacao) {
-    throw new Error(
-      'Este produto possui movimentações registradas e não pode ser excluído.'
+  if (!produto) return 0;
+
+  let changes = 0;
+
+  await executarTransacao(async () => {
+    const resultado = await db.runAsync(
+      'UPDATE produtos SET ativo = 0, atualizado_em = CURRENT_TIMESTAMP WHERE id = ? AND ativo = 1;',
+      [id]
     );
-  }
 
-  const resultado = await db.runAsync(
-    'DELETE FROM produtos WHERE id = ?;',
-    [id]
-  );
+    changes = resultado.changes;
 
-  return resultado.changes;
+    if (changes > 0) {
+      await db.runAsync(
+        `INSERT INTO auditoria_produtos (
+          produto_id, produto_nome, acao, detalhe, usuario_id, usuario_nome
+        ) VALUES (?, ?, 'Exclusão', 'Produto removido do estoque ativo', ?, ?);`,
+        [id, produto.nome, usuarioId, usuarioNome || '']
+      );
+    }
+  });
+
+  return changes;
 }
 
 export async function registrarEntrada(
   produtoId,
   quantidade,
   motivo,
-  observacao
+  observacao,
+  usuarioId = null,
+  usuarioNome = ''
 ) {
   await inicializarBancoDados();
 
@@ -314,15 +413,19 @@ export async function registrarEntrada(
         quantidade_anterior,
         quantidade_posterior,
         motivo,
-        observacao
-      ) VALUES (?, 'Entrada', ?, ?, ?, ?, ?);`,
+        observacao,
+        autorizador_id,
+        autorizador_nome
+      ) VALUES (?, 'Entrada', ?, ?, ?, ?, ?, ?, ?);`,
       [
         produtoId,
         qtdEntrada,
         qtdAnterior,
         qtdPosterior,
         motivo || '',
-        observacao || ''
+        observacao || '',
+        usuarioId,
+        usuarioNome || ''
       ]
     );
 
@@ -470,8 +573,35 @@ export async function listarMovimentacoes(filtros = {}) {
   sql += ' ORDER BY m.data DESC;';
 
   const movimentacoes = await db.getAllAsync(sql, params);
+  const auditoria = filtros.tipo
+    ? []
+    : await db.getAllAsync(
+      `SELECT
+        -id AS id,
+        produto_nome AS produtoNome,
+        CASE acao
+          WHEN 'Cadastro' THEN 'Cadastro de produto'
+          WHEN 'Edição' THEN 'Edição de produto'
+          ELSE 'Exclusão de produto'
+        END AS tipo,
+        0 AS quantidade,
+        NULL AS quantidadeAnterior,
+        NULL AS quantidadePosterior,
+        acao AS motivo,
+        detalhe AS observacao,
+        usuario_id AS autorizadorId,
+        usuario_nome AS autorizadorNome,
+        data
+       FROM auditoria_produtos
+       ${filtros.busca ? 'WHERE produto_nome LIKE ?' : ''}
+       ORDER BY data DESC;`,
+      filtros.busca ? [`%${filtros.busca}%`] : []
+    );
 
-  return movimentacoes.map(mov => ({
+  const registros = [...movimentacoes, ...auditoria]
+    .sort((a, b) => b.data.localeCompare(a.data));
+
+  return registros.map(mov => ({
     ...mov,
     data: formatarDataBrasileira(mov.data)
   }));
@@ -529,14 +659,14 @@ export async function obterIndicadores() {
   await inicializarBancoDados();
 
   const totalResult = await db.getFirstAsync(
-    'SELECT COUNT(*) AS total FROM produtos;'
+    'SELECT COUNT(*) AS total FROM produtos WHERE ativo = 1;'
   );
   const totalProdutos = totalResult ? totalResult.total : 0;
 
   const estoqueBaixoResult = await db.getFirstAsync(
     `SELECT COUNT(*) AS total
      FROM produtos
-     WHERE quantidade > 0 AND quantidade <= estoque_minimo;`
+     WHERE ativo = 1 AND quantidade > 0 AND quantidade <= estoque_minimo;`
   );
   const estoqueBaixo = estoqueBaixoResult
     ? estoqueBaixoResult.total
@@ -572,7 +702,7 @@ export async function obterIndicadores() {
       quantidade,
       estoque_minimo AS estoqueMinimo
      FROM produtos
-     WHERE quantidade > 0 AND quantidade <= estoque_minimo
+     WHERE ativo = 1 AND quantidade > 0 AND quantidade <= estoque_minimo
      ORDER BY quantidade ASC
      LIMIT 5;`
   );
@@ -602,8 +732,122 @@ export async function buscarProdutos(termo) {
       p.categoria_id AS categoriaId
     FROM produtos p
     LEFT JOIN categorias c ON p.categoria_id = c.id
-    WHERE p.nome LIKE ?
+    WHERE p.ativo = 1 AND p.nome LIKE ?
     ORDER BY p.nome;`,
     [`%${termo}%`]
   );
+}
+
+export async function verificarAdministrador() {
+  await inicializarBancoDados();
+
+  const administrador = await db.getFirstAsync(
+    "SELECT id FROM usuarios WHERE perfil = 'administrador' AND ativo = 1 LIMIT 1;"
+  );
+
+  return Boolean(administrador);
+}
+
+export async function cadastrarAdministrador({ nome, usuario, senha }) {
+  await inicializarBancoDados();
+
+  const existe = await verificarAdministrador();
+  if (existe) throw new Error('O administrador já foi configurado.');
+
+  const nomeLimpo = nome.trim();
+  const usuarioLimpo = usuario.trim().toLowerCase();
+  const senhaLimpa = senha.trim();
+
+  if (!nomeLimpo || !usuarioLimpo || !senhaLimpa) {
+    throw new Error('Preencha todos os campos.');
+  }
+
+  const resultado = await db.runAsync(
+    "INSERT INTO usuarios (nome, usuario, senha, perfil) VALUES (?, ?, ?, 'administrador');",
+    [nomeLimpo, usuarioLimpo, senhaLimpa]
+  );
+
+  return { id: resultado.lastInsertRowId, nome: nomeLimpo, perfil: 'administrador' };
+}
+
+export async function entrarNoSistema(usuario, senha) {
+  await inicializarBancoDados();
+
+  const registro = await db.getFirstAsync(
+    'SELECT id, nome, usuario, senha, perfil FROM usuarios WHERE LOWER(usuario) = LOWER(?) AND ativo = 1;',
+    [usuario.trim()]
+  );
+
+  if (!registro || registro.senha !== senha) return null;
+
+  return {
+    id: registro.id,
+    nome: registro.nome,
+    usuario: registro.usuario,
+    perfil: registro.perfil,
+  };
+}
+
+export async function validarSenhaFuncionario(id, senha) {
+  await inicializarBancoDados();
+
+  const colaborador = await db.getFirstAsync(
+    "SELECT id, nome FROM usuarios WHERE id = ? AND senha = ? AND perfil = 'funcionario' AND ativo = 1;",
+    [id, senha.trim()]
+  );
+
+  return colaborador || null;
+}
+
+export async function listarFuncionarios() {
+  await inicializarBancoDados();
+
+  return await db.getAllAsync(
+    "SELECT id, nome, usuario, ativo FROM usuarios WHERE perfil = 'funcionario' ORDER BY nome;"
+  );
+}
+
+export async function salvarFuncionario({ id, nome, usuario, senha }) {
+  await inicializarBancoDados();
+
+  const nomeLimpo = nome.trim();
+  const usuarioLimpo = usuario.trim().toLowerCase();
+  const senhaLimpa = senha.trim();
+
+  if (!nomeLimpo || !usuarioLimpo || (!id && !senhaLimpa)) {
+    throw new Error('Informe nome, usuário e senha.');
+  }
+
+  if (id) {
+    if (senhaLimpa) {
+      await db.runAsync(
+        "UPDATE usuarios SET nome = ?, usuario = ?, senha = ?, ativo = 1 WHERE id = ? AND perfil = 'funcionario';",
+        [nomeLimpo, usuarioLimpo, senhaLimpa, id]
+      );
+    } else {
+      await db.runAsync(
+        "UPDATE usuarios SET nome = ?, usuario = ?, ativo = 1 WHERE id = ? AND perfil = 'funcionario';",
+        [nomeLimpo, usuarioLimpo, id]
+      );
+    }
+    return id;
+  }
+
+  const resultado = await db.runAsync(
+    "INSERT INTO usuarios (nome, usuario, senha, perfil) VALUES (?, ?, ?, 'funcionario');",
+    [nomeLimpo, usuarioLimpo, senhaLimpa]
+  );
+
+  return resultado.lastInsertRowId;
+}
+
+export async function removerFuncionario(id) {
+  await inicializarBancoDados();
+
+  const resultado = await db.runAsync(
+    "UPDATE usuarios SET ativo = 0 WHERE id = ? AND perfil = 'funcionario';",
+    [id]
+  );
+
+  return resultado.changes;
 }

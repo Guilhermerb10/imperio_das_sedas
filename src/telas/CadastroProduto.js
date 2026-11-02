@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { cores } from '../estilo/style';
 import SeletorCategoria from '../componentes/SeletorCategoria';
 import { mostrarAlerta } from '../util/alerta';
+import { validarSenhaColaborador } from '../banco/AutorizacaoEstoque';
 import {
   cadastrarProduto,
   atualizarProduto,
@@ -32,7 +34,7 @@ function formatarMoeda(texto) {
   });
 }
 
-export default function CadastroProduto({ navigation, route }) {
+export default function CadastroProduto({ navigation, route, usuario }) {
   const produtoId = route?.params?.produtoId || null;
   const editando = !!produtoId;
 
@@ -46,6 +48,10 @@ export default function CadastroProduto({ navigation, route }) {
   const [categorias, setCategorias] = useState([]);
   const [carregandoDados, setCarregandoDados] = useState(editando);
   const [salvando, setSalvando] = useState(false);
+  const [modalSenha, setModalSenha] = useState(false);
+  const [senhaDigitada, setSenhaDigitada] = useState('');
+  const [erroSenha, setErroSenha] = useState('');
+  const [validandoSenha, setValidandoSenha] = useState(false);
 
   useEffect(() => {
     async function carregarDadosIniciais() {
@@ -80,7 +86,7 @@ export default function CadastroProduto({ navigation, route }) {
     carregarDadosIniciais();
   }, [produtoId, navigation]);
 
-  async function validarESalvar() {
+  async function validarESalvar(confirmada = false, colaborador = null) {
     if (!nome.trim()) {
       mostrarAlerta('Atenção', 'Informe o nome do produto.');
       return;
@@ -111,9 +117,17 @@ export default function CadastroProduto({ navigation, route }) {
       return;
     }
 
+    if (usuario?.perfil === 'funcionario' && !confirmada) {
+      setSenhaDigitada('');
+      setErroSenha('');
+      setModalSenha(true);
+      return;
+    }
+
     setSalvando(true);
 
     try {
+      const responsavel = colaborador || usuario;
       const dados = {
         nome: nome.trim(),
         codigo: codigo.trim(),
@@ -122,21 +136,26 @@ export default function CadastroProduto({ navigation, route }) {
         estoqueMinimo: parseInt(estoqueMinimo, 10) || 0,
         precoCusto,
         observacoes: observacoes.trim(),
+        usuarioId: responsavel?.id,
+        usuarioNome: responsavel?.nome,
       };
 
       if (editando) {
         await atualizarProduto(produtoId, dados);
+        setModalSenha(false);
         mostrarAlerta('Sucesso', 'Produto atualizado com sucesso!', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       } else {
         await cadastrarProduto(dados);
+        setModalSenha(false);
         mostrarAlerta('Sucesso', 'Produto cadastrado com sucesso!', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       }
     } catch (erro) {
       console.error('Erro ao salvar produto:', erro);
+      setModalSenha(false);
       if (erro.message && erro.message.includes('UNIQUE')) {
         mostrarAlerta('Atenção', 'Já existe um produto cadastrado com este código.');
       } else {
@@ -144,6 +163,36 @@ export default function CadastroProduto({ navigation, route }) {
       }
     } finally {
       setSalvando(false);
+    }
+  }
+
+  async function confirmarSenhaProduto() {
+    if (!senhaDigitada.trim()) {
+      setErroSenha('Informe sua senha para confirmar a ação.');
+      return;
+    }
+
+    if (validandoSenha) return;
+
+    setValidandoSenha(true);
+    setErroSenha('');
+
+    try {
+      const colaborador = await validarSenhaColaborador(
+        senhaDigitada,
+        usuario?.id
+      );
+
+      if (!colaborador) {
+        setErroSenha('Senha incorreta. Confira sua senha e tente novamente.');
+        return;
+      }
+
+      await validarESalvar(true, colaborador);
+    } catch (erro) {
+      setErroSenha(erro?.message || 'Não foi possível validar sua senha.');
+    } finally {
+      setValidandoSenha(false);
     }
   }
 
@@ -281,6 +330,69 @@ export default function CadastroProduto({ navigation, route }) {
           <Text style={styles.observacao}>* Campos obrigatórios</Text>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={modalSenha}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (validandoSenha || salvando) return;
+          setModalSenha(false);
+          setSenhaDigitada('');
+          setErroSenha('');
+        }}
+      >
+        <View style={styles.fundoModal}>
+          <View style={styles.conteudoModal}>
+            <Text style={styles.tituloModal}>
+              Confirmar {editando ? 'edição' : 'cadastro'}
+            </Text>
+            <Text style={styles.textoModal}>
+              Informe sua senha para confirmar esta ação no produto.
+            </Text>
+            <TextInput
+              style={styles.inputSenha}
+              placeholder="Sua senha"
+              placeholderTextColor={cores.textoSecundario}
+              value={senhaDigitada}
+              onChangeText={valor => {
+                setSenhaDigitada(valor);
+                setErroSenha('');
+              }}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!validandoSenha && !salvando}
+              onSubmitEditing={confirmarSenhaProduto}
+              returnKeyType="done"
+            />
+            {erroSenha ? <Text style={styles.erroSenha}>{erroSenha}</Text> : null}
+            <TouchableOpacity
+              style={styles.botaoConfirmarSenha}
+              onPress={confirmarSenhaProduto}
+              disabled={validandoSenha || salvando}
+            >
+              {validandoSenha || salvando ? (
+                <ActivityIndicator color={cores.fundo} />
+              ) : (
+                <Text style={styles.textoBotaoModal}>Confirmar ação</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.botaoCancelar}
+              onPress={() => {
+                if (validandoSenha || salvando) return;
+                setModalSenha(false);
+                setSenhaDigitada('');
+                setErroSenha('');
+              }}
+              disabled={validandoSenha || salvando}
+            >
+              <Text style={styles.textoCancelar}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -366,5 +478,73 @@ const styles = StyleSheet.create({
     color: cores.textoSecundario,
     fontSize: 12,
     marginTop: 15,
+  },
+  fundoModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  conteudoModal: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: cores.cartao,
+    borderRadius: 18,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: cores.borda,
+  },
+  tituloModal: {
+    color: cores.branco,
+    fontSize: 21,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  textoModal: {
+    color: cores.textoSecundario,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  inputSenha: {
+    minHeight: 50,
+    backgroundColor: cores.fundo,
+    color: cores.branco,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: cores.borda,
+    paddingHorizontal: 14,
+    fontSize: 15,
+  },
+  erroSenha: {
+    color: cores.erro,
+    fontSize: 13,
+    marginTop: 10,
+  },
+  botaoConfirmarSenha: {
+    minHeight: 50,
+    backgroundColor: cores.dourado,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
+  },
+  textoBotaoModal: {
+    color: cores.fundo,
+    fontWeight: 'bold',
+  },
+  botaoCancelar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    marginTop: 4,
+  },
+  textoCancelar: {
+    color: cores.textoSecundario,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

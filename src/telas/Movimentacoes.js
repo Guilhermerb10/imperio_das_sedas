@@ -14,16 +14,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 
-import { validarSenhaColaborador } from '../banco/AutorizacaoEstoque';
 import { cores } from '../estilo/style';
 import { mostrarAlerta } from '../util/alerta';
+import { validarSenhaColaborador } from '../banco/AutorizacaoEstoque';
 import {
   listarProdutos,
   registrarEntrada,
   registrarSaida,
 } from '../banco/BancoDados';
 
-export default function Movimentacoes() {
+export default function Movimentacoes({ usuario, onSair }) {
   const [tipo, setTipo] = useState('Entrada');
   const [produto, setProduto] = useState(null);
   const [itensSelecionados, setItensSelecionados] = useState([]);
@@ -36,7 +36,6 @@ export default function Movimentacoes() {
 
   const [produtos, setProdutos] = useState([]);
   const [salvando, setSalvando] = useState(false);
-
   const [modalSenha, setModalSenha] = useState(false);
   const [senhaDigitada, setSenhaDigitada] = useState('');
   const [erroSenha, setErroSenha] = useState('');
@@ -151,10 +150,7 @@ export default function Movimentacoes() {
     );
   }
 
-  async function validarERegistrar(
-    confirmada = false,
-    colaborador = null
-  ) {
+  async function validarERegistrar(confirmada = false, colaborador = null) {
     if (salvando) return;
 
     if (itensSelecionados.length === 0) {
@@ -180,7 +176,7 @@ export default function Movimentacoes() {
       }
     }
 
-    if (tipo === 'Saída' && !confirmada) {
+    if (usuario?.perfil === 'funcionario' && !confirmada) {
       setSenhaDigitada('');
       setErroSenha('');
       setModalSenha(true);
@@ -190,6 +186,7 @@ export default function Movimentacoes() {
     setSalvando(true);
 
     try {
+      const responsavel = colaborador || usuario;
       // Atualiza o estoque antes de validar e registrar a saída
       const listaAtualizada = await listarProdutos();
 
@@ -228,7 +225,9 @@ export default function Movimentacoes() {
             item.produto.id,
             quantidade,
             motivo,
-            observacoes.trim()
+            observacoes.trim(),
+            responsavel?.id,
+            responsavel?.nome
           );
         } else {
           await registrarSaida(
@@ -236,14 +235,13 @@ export default function Movimentacoes() {
             quantidade,
             motivo,
             observacoes.trim(),
-            colaborador?.id,
-            colaborador?.nome
+            responsavel?.id,
+            responsavel?.nome
           );
         }
       }
 
       setModalSenha(false);
-
       mostrarAlerta(
         'Sucesso',
         `Movimentação concluída! ${itensSelecionados.length} produto(s) registrado(s).`
@@ -265,9 +263,9 @@ export default function Movimentacoes() {
     }
   }
 
-  async function confirmarSenhaSaida() {
+  async function confirmarSenhaMovimentacao() {
     if (!senhaDigitada.trim()) {
-      setErroSenha('Informe a senha do colaborador.');
+      setErroSenha('Informe sua senha para confirmar a movimentação.');
       return;
     }
 
@@ -278,21 +276,18 @@ export default function Movimentacoes() {
 
     try {
       const colaborador = await validarSenhaColaborador(
-        senhaDigitada.trim()
+        senhaDigitada,
+        usuario?.id
       );
 
       if (!colaborador) {
-        setErroSenha('Senha inválida ou colaborador não autorizado.');
+        setErroSenha('Senha incorreta. Confira sua senha e tente novamente.');
         return;
       }
 
-      setModalSenha(false);
       await validarERegistrar(true, colaborador);
     } catch (erro) {
-      console.error('Erro ao validar senha:', erro);
-      setErroSenha(
-        erro?.message || 'Não foi possível validar a senha.'
-      );
+      setErroSenha(erro?.message || 'Não foi possível validar sua senha.');
     } finally {
       setValidandoSenha(false);
     }
@@ -304,7 +299,15 @@ export default function Movimentacoes() {
         contentContainerStyle={styles.conteudo}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.titulo}>Movimentações de estoque</Text>
+        <View style={styles.cabecalhoTela}>
+          <View style={styles.tituloContainer}>
+            <Text style={styles.titulo}>Movimentações de estoque</Text>
+            <Text style={styles.subtitulo}>Conectado como {usuario?.nome}</Text>
+          </View>
+          <TouchableOpacity style={styles.botaoSair} onPress={onSair}>
+            <Ionicons name="log-out-outline" size={20} color={cores.dourado} />
+          </TouchableOpacity>
+        </View>
 
         <Text style={styles.subtitulo}>
           Registre entradas ou saídas de vários produtos.
@@ -551,17 +554,15 @@ export default function Movimentacoes() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Modal de autorização para saída */}
       <Modal
         visible={modalSenha}
         transparent
         animationType="fade"
         onRequestClose={() => {
-          if (!validandoSenha && !salvando) {
-            setModalSenha(false);
-            setSenhaDigitada('');
-            setErroSenha('');
-          }
+          if (validandoSenha || salvando) return;
+          setModalSenha(false);
+          setSenhaDigitada('');
+          setErroSenha('');
         }}
       >
         <View style={styles.fundoModal}>
@@ -575,17 +576,16 @@ export default function Movimentacoes() {
             </View>
 
             <Text style={styles.tituloModal}>
-              Autorizar saída
+              Confirmar {tipo.toLowerCase()}
             </Text>
 
             <Text style={styles.textoModal}>
-              Informe a senha de um colaborador autorizado para confirmar
-              a saída dos produtos selecionados.
+              Informe sua senha para confirmar a {tipo.toLowerCase()} dos produtos selecionados.
             </Text>
 
             <TextInput
               style={styles.inputSenha}
-              placeholder="Senha do colaborador"
+              placeholder="Sua senha"
               placeholderTextColor={cores.textoSecundario}
               value={senhaDigitada}
               onChangeText={valor => {
@@ -596,7 +596,7 @@ export default function Movimentacoes() {
               autoCapitalize="none"
               autoCorrect={false}
               editable={!validandoSenha && !salvando}
-              onSubmitEditing={confirmarSenhaSaida}
+              onSubmitEditing={confirmarSenhaMovimentacao}
               returnKeyType="done"
             />
 
@@ -606,14 +606,14 @@ export default function Movimentacoes() {
 
             <TouchableOpacity
               style={styles.botaoConfirmarSenha}
-              onPress={confirmarSenhaSaida}
+              onPress={confirmarSenhaMovimentacao}
               disabled={validandoSenha || salvando}
             >
               {validandoSenha || salvando ? (
                 <ActivityIndicator color={cores.fundo} />
               ) : (
                 <Text style={styles.textoBotaoRegistrar}>
-                  Confirmar saída
+                  Confirmar movimentação
                 </Text>
               )}
             </TouchableOpacity>
@@ -659,6 +659,106 @@ const styles = StyleSheet.create({
     color: cores.textoSecundario,
     fontSize: 14,
     marginBottom: 24,
+  },
+
+  cabecalhoTela: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+
+  tituloContainer: {
+    flex: 1,
+  },
+
+  botaoSair: {
+    padding: 10,
+    marginLeft: 8,
+  },
+
+  fundoModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+
+  conteudoModal: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: cores.cartao,
+    borderRadius: 18,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: cores.borda,
+  },
+
+  iconeModal: {
+    alignSelf: 'center',
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: cores.fundo,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+
+  tituloModal: {
+    color: cores.branco,
+    fontSize: 21,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+
+  textoModal: {
+    color: cores.textoSecundario,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+
+  inputSenha: {
+    minHeight: 50,
+    backgroundColor: cores.fundo,
+    color: cores.branco,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: cores.borda,
+    paddingHorizontal: 14,
+    fontSize: 15,
+  },
+
+  erroSenha: {
+    color: cores.erro,
+    fontSize: 13,
+    marginTop: 10,
+  },
+
+  botaoConfirmarSenha: {
+    minHeight: 50,
+    backgroundColor: cores.dourado,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
+  },
+
+  botaoCancelar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    marginTop: 4,
+  },
+
+  textoCancelar: {
+    color: cores.textoSecundario,
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   label: {
@@ -875,87 +975,4 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
-  fundoModal: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-
-  conteudoModal: {
-    width: '100%',
-    maxWidth: 420,
-    backgroundColor: cores.cartao,
-    borderRadius: 18,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: cores.borda,
-  },
-
-  iconeModal: {
-    alignSelf: 'center',
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: cores.fundo,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-  },
-
-  tituloModal: {
-    color: cores.branco,
-    fontSize: 21,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-
-  textoModal: {
-    color: cores.textoSecundario,
-    fontSize: 14,
-    lineHeight: 21,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-
-  inputSenha: {
-    minHeight: 50,
-    backgroundColor: cores.fundo,
-    color: cores.branco,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: cores.borda,
-    paddingHorizontal: 14,
-    fontSize: 15,
-  },
-
-  erroSenha: {
-    color: '#ff6b6b',
-    fontSize: 13,
-    marginTop: 10,
-  },
-
-  botaoConfirmarSenha: {
-    minHeight: 50,
-    backgroundColor: cores.dourado,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 18,
-  },
-
-  botaoCancelar: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 14,
-    marginTop: 4,
-  },
-
-  textoCancelar: {
-    color: cores.textoSecundario,
-    fontSize: 14,
-    fontWeight: '600',
-  },
 });

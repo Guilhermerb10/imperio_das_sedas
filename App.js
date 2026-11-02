@@ -4,6 +4,7 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import NavegacaoPrincipal from './src/navegacao/NavegacaoPrincipal';
+import Login from './src/telas/Login';
 import { inicializarBancoDados } from './src/banco/BancoDados';
 import { cores } from './src/estilo/style';
 
@@ -22,6 +23,7 @@ const temaNavegacao = {
 export default function App() {
   const [pronto, setPronto] = useState(false);
   const [erro, setErro] = useState(null);
+  const [usuario, setUsuario] = useState(null);
 
   async function iniciar() {
     setErro(null);
@@ -60,7 +62,14 @@ export default function App() {
         </View>
       ) : (
         <NavigationContainer theme={temaNavegacao}>
-          <NavegacaoPrincipal />
+          {usuario ? (
+            <NavegacaoPrincipal
+              usuario={usuario}
+              onSair={() => setUsuario(null)}
+            />
+          ) : (
+            <Login onEntrar={setUsuario} />
+          )}
         </NavigationContainer>
       )}
     </SafeAreaProvider>
