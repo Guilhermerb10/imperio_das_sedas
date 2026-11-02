@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -9,14 +8,16 @@ import Estoque from '../telas/Estoque';
 import Movimentacoes from '../telas/Movimentacoes';
 import Historico from '../telas/Historico';
 import CadastroProduto from '../telas/CadastroProduto';
+import Funcionarios from '../telas/Funcionarios';
 
 import { cores } from '../estilo/style';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-// Menu inferior do aplicativo
-function MenuPrincipal() {
+function MenuPrincipal({ usuario, onSair }) {
+  const ehFuncionario = usuario.perfil === 'funcionario';
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -50,42 +51,75 @@ function MenuPrincipal() {
         },
       })}
     >
-      <Tab.Screen
-        name="Inicio"
-        component={Home}
-        options={{ tabBarLabel: 'Início' }}
-      />
+      {ehFuncionario ? (
+        <>
+          <Tab.Screen
+            name="Estoque"
+          >
+            {(props) => <Estoque {...props} usuario={usuario} onSair={onSair} />}
+          </Tab.Screen>
 
-      <Tab.Screen name="Estoque" component={Estoque} />
+          <Tab.Screen
+            name="Movimentacoes"
+            options={{ tabBarLabel: 'Movimentações' }}
+          >
+            {(props) => <Movimentacoes {...props} usuario={usuario} onSair={onSair} />}
+          </Tab.Screen>
+        </>
+      ) : (
+        <>
+          <Tab.Screen
+            name="Inicio"
+            options={{ tabBarLabel: 'Início' }}
+          >
+            {(props) => <Home {...props} onSair={onSair} />}
+          </Tab.Screen>
 
-      <Tab.Screen
-        name="Movimentacoes"
-        component={Movimentacoes}
-        options={{ tabBarLabel: 'Movimentações' }}
-      />
+          <Tab.Screen
+            name="Estoque"
+          >
+            {(props) => <Estoque {...props} usuario={usuario} onSair={onSair} />}
+          </Tab.Screen>
 
-      <Tab.Screen
-        name="Historico"
-        component={Historico}
-        options={{ tabBarLabel: 'Histórico' }}
-      />
+          <Tab.Screen
+            name="Movimentacoes"
+            options={{ tabBarLabel: 'Movimentações' }}
+          >
+            {(props) => <Movimentacoes {...props} usuario={usuario} onSair={onSair} />}
+          </Tab.Screen>
+
+          <Tab.Screen
+            name="Historico"
+            component={Historico}
+            options={{ tabBarLabel: 'Histórico' }}
+          />
+        </>
+      )}
     </Tab.Navigator>
   );
 }
 
-// Navegação entre o menu e as telas adicionais
-export default function NavegacaoPrincipal() {
+export default function NavegacaoPrincipal({ usuario, onSair }) {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen
         name="MenuPrincipal"
-        component={MenuPrincipal}
-      />
+      >
+        {(props) => <MenuPrincipal {...props} usuario={usuario} onSair={onSair} />}
+      </Stack.Screen>
 
-      <Stack.Screen
-        name="CadastroProduto"
-        component={CadastroProduto}
-      />
+      <Stack.Screen name="CadastroProduto">
+        {(props) => <CadastroProduto {...props} usuario={usuario} />}
+      </Stack.Screen>
+
+      {usuario.perfil !== 'funcionario' ? (
+        <>
+          <Stack.Screen
+            name="Funcionarios"
+            component={Funcionarios}
+          />
+        </>
+      ) : null}
     </Stack.Navigator>
   );
 }

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,22 +7,44 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { cores } from '../estilo/style';
+import { listarMovimentacoes } from '../banco/BancoDados';
 
 export default function Historico() {
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('Todas');
-
-  // Lista vazia até a integração com SQLite
-  const [movimentacoes] = useState([]);
+  const [movimentacoes, setMovimentacoes] = useState([]);
+  const [carregando, setCarregando] = useState(true);
 
   const filtros = ['Todas', 'Entradas', 'Saídas'];
 
-  // Indicadores
+  const carregarHistorico = useCallback(async () => {
+    try {
+      setCarregando(true);
+      const lista = await listarMovimentacoes();
+      setMovimentacoes(lista);
+    } catch (erro) {
+      console.error(
+        'Erro ao carregar movimentações do SQLite:',
+        erro
+      );
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      carregarHistorico();
+    }, [carregarHistorico])
+  );
+
   const total = movimentacoes.length;
 
   const totalEntradas = movimentacoes.filter(
@@ -33,11 +55,12 @@ export default function Historico() {
     (item) => item.tipo === 'Saída'
   ).length;
 
-  // Pesquisa e filtros
   const movimentacoesFiltradas = movimentacoes.filter((item) => {
-    const correspondeBusca = item.produtoNome
-      .toLowerCase()
-      .includes(busca.toLowerCase());
+    const termoBusca = busca.toLowerCase();
+
+    const correspondeBusca = (
+      item.produtoNome || ''
+    ).toLowerCase().includes(termoBusca);
 
     if (!correspondeBusca) return false;
 
@@ -60,20 +83,14 @@ export default function Historico() {
         keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
       >
-        {/* CABEÇALHO */}
-        <Text style={styles.nomeLoja}>
-          IMPÉRIO DAS SEDAS
-        </Text>
+        <Text style={styles.nomeLoja}>IMPÉRIO DAS SEDAS</Text>
 
-        <Text style={styles.titulo}>
-          Histórico
-        </Text>
+        <Text style={styles.titulo}>Histórico</Text>
 
         <Text style={styles.subtitulo}>
           Acompanhe as movimentações do estoque
         </Text>
 
-        {/* INDICADORES */}
         <View style={styles.linha}>
           <View style={styles.cartao}>
             <Ionicons
@@ -81,7 +98,9 @@ export default function Historico() {
               size={23}
               color={cores.dourado}
             />
-            <Text style={styles.valor}>{total}</Text>
+            <Text style={styles.valor}>
+              {carregando ? '...' : total}
+            </Text>
             <Text style={styles.textoCartao}>Total</Text>
           </View>
 
@@ -91,7 +110,9 @@ export default function Historico() {
               size={23}
               color={cores.dourado}
             />
-            <Text style={styles.valor}>{totalEntradas}</Text>
+            <Text style={styles.valor}>
+              {carregando ? '...' : totalEntradas}
+            </Text>
             <Text style={styles.textoCartao}>Entradas</Text>
           </View>
 
@@ -101,12 +122,13 @@ export default function Historico() {
               size={23}
               color={cores.dourado}
             />
-            <Text style={styles.valor}>{totalSaidas}</Text>
+            <Text style={styles.valor}>
+              {carregando ? '...' : totalSaidas}
+            </Text>
             <Text style={styles.textoCartao}>Saídas</Text>
           </View>
         </View>
 
-        {/* BUSCA */}
         <View style={styles.campoBusca}>
           <Ionicons
             name="search-outline"
@@ -116,14 +138,13 @@ export default function Historico() {
 
           <TextInput
             style={styles.inputBusca}
-            placeholder="Buscar produto..."
+            placeholder="Buscar produto movimentado..."
             placeholderTextColor={cores.textoSecundario}
             value={busca}
             onChangeText={setBusca}
           />
         </View>
 
-        {/* FILTROS */}
         <View style={styles.areaFiltros}>
           {filtros.map((item) => (
             <TouchableOpacity
@@ -146,8 +167,13 @@ export default function Historico() {
           ))}
         </View>
 
-        {/* LISTAGEM */}
-        {movimentacoesFiltradas.length === 0 ? (
+        {carregando ? (
+          <ActivityIndicator
+            size="large"
+            color={cores.dourado}
+            style={{ marginVertical: 40 }}
+          />
+        ) : movimentacoesFiltradas.length === 0 ? (
           <View style={styles.estadoVazio}>
             <Ionicons
               name="time-outline"
@@ -168,43 +194,128 @@ export default function Historico() {
             </Text>
           </View>
         ) : (
-          movimentacoesFiltradas.map((item) => (
-            <View
-              key={item.id}
-              style={styles.cartaoMovimentacao}
-            >
-              <View style={styles.cabecalhoMovimentacao}>
-                <Text style={styles.nomeProduto}>
-                  {item.produtoNome}
-                </Text>
+          movimentacoesFiltradas.map((item) => {
+            const isEntrada = item.tipo === 'Entrada';
+            const isSaida = item.tipo === 'Saída';
+            const isAcaoProduto = !isEntrada && !isSaida;
+            const corTipo = isEntrada
+              ? cores.sucesso
+              : isSaida
+                ? cores.erro
+                : cores.dourado;
+            const iconeTipo = isEntrada
+              ? 'arrow-down-outline'
+              : isSaida
+                ? 'arrow-up-outline'
+                : item.tipo === 'Exclusão de produto'
+                  ? 'trash-outline'
+                  : item.tipo === 'Edição de produto'
+                    ? 'create-outline'
+                    : 'add-circle-outline';
 
-                <Text
-                  style={[
-                    styles.tipoMovimentacao,
-                    {
-                      color: item.tipo === 'Entrada'
-                        ? cores.sucesso
-                        : cores.erro,
-                    },
-                  ]}
-                >
-                  {item.tipo}
+            return (
+              <View
+                key={item.id}
+                style={styles.cartaoMovimentacao}
+              >
+                <View style={styles.cabecalhoMovimentacao}>
+                  <Text style={styles.nomeProduto}>
+                    {item.produtoNome || 'Produto não informado'}
+                  </Text>
+
+                  <View
+                    style={[
+                      styles.tagTipo,
+                      {
+                        backgroundColor: isEntrada
+                          ? 'rgba(76, 175, 80, 0.15)'
+                          : isSaida
+                            ? 'rgba(229, 115, 115, 0.15)'
+                            : 'rgba(213, 181, 109, 0.15)',
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={iconeTipo}
+                      size={14}
+                      color={corTipo}
+                    />
+
+                    <Text
+                      style={[
+                        styles.tipoMovimentacao,
+                        {
+                          color: corTipo,
+                        },
+                      ]}
+                    >
+                      {item.tipo}
+                    </Text>
+                  </View>
+                </View>
+
+                {isAcaoProduto ? (
+                  <View style={styles.linhaDetalhe}>
+                    <Text style={styles.detalhes}>
+                      Ação: <Text style={styles.destaque}>{item.motivo}</Text>
+                    </Text>
+                    <Text style={styles.detalhes}>
+                      {item.observacao || 'Ação registrada'}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.linhaDetalhe}>
+                    <Text style={styles.detalhes}>
+                      Quantidade:{' '}
+                      <Text style={styles.destaque}>
+                        {item.quantidade} un.
+                      </Text>
+                    </Text>
+
+                    <Text style={styles.detalhes}>
+                      Motivo:{' '}
+                      <Text style={styles.destaque}>
+                        {item.motivo || 'Não informado'}
+                      </Text>
+                    </Text>
+                  </View>
+                )}
+
+                {item.quantidadeAnterior != null &&
+                  item.quantidadePosterior != null && (
+                    <Text style={styles.saldoAuditoria}>
+                      Saldo: {item.quantidadeAnterior} →{' '}
+                      {item.quantidadePosterior} un.
+                    </Text>
+                  )}
+
+                {!isAcaoProduto && item.observacao ? (
+                  <Text style={styles.observacao}>
+                    Obs: {item.observacao}
+                  </Text>
+                ) : null}
+
+                {item.autorizadorNome && (
+                  <View style={styles.autorizadorContainer}>
+                    <Ionicons
+                      name="person-circle-outline"
+                      size={18}
+                      color={cores.dourado}
+                    />
+
+                    <Text style={styles.autorizador}>
+                      Registrado por:{' '}
+                      {item.autorizadorNome || 'Não informado'}
+                    </Text>
+                  </View>
+                )}
+
+                <Text style={styles.data}>
+                  {item.data || 'Data não informada'}
                 </Text>
               </View>
-
-              <Text style={styles.detalhes}>
-                Quantidade: {item.quantidade}
-              </Text>
-
-              <Text style={styles.detalhes}>
-                Motivo: {item.motivo}
-              </Text>
-
-              <Text style={styles.data}>
-                {item.data}
-              </Text>
-            </View>
-          ))
+            );
+          })
         )}
       </ScrollView>
     </SafeAreaView>
@@ -359,20 +470,70 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  tagTipo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+
   tipoMovimentacao: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 'bold',
+  },
+
+  linhaDetalhe: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 8,
+    flexWrap: 'wrap',
   },
 
   detalhes: {
     color: cores.textoSecundario,
     fontSize: 13,
+  },
+
+  destaque: {
+    color: cores.branco,
+    fontWeight: '500',
+  },
+
+  saldoAuditoria: {
+    color: cores.textoSecundario,
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+
+  observacao: {
+    color: cores.textoSecundario,
+    fontSize: 12,
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+
+  autorizadorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 8,
+    gap: 5,
+  },
+
+  autorizador: {
+    color: cores.dourado,
+    fontSize: 13,
+    fontWeight: '600',
+    flexShrink: 1,
   },
 
   data: {
     color: cores.dourado,
     fontSize: 12,
-    marginTop: 12,
+    marginTop: 10,
   },
 });
